@@ -1,70 +1,212 @@
 import { useEffect, useState } from 'react'
 import { PokemonCard } from './components/PokemonCard'
-import { initializeApp } from "firebase/app";
-import './App.css'
-
-const API = 'https://pokeapi.co/api/v2/pokemon'
+import { cargarEquipo, eliminarPokemon, guardarPokemon } from './data/equipo'
+import { buscarPokemon, cargarPokemones, LIMITE } from './data/pokemones'
+import {
+  agregarPokemon,
+  equipoLleno,
+  estaEnEquipo,
+  prepararPokemon,
+  quitarPokemon,
+} from './logic/equipo'
 
 function App() {
-  const [pokemones, setPokemones] = useState([]) //Guardamos todos los pokemon que lleguen
-  const [cargando, setCargando] = useState(true) // Empieza en True o sea "si, estoy cargando"
-  const [error, setError] = useState(null) // Empieza en null, que significa que aun no tenemos un error para mostrar
+  const [pokemones, setPokemones] = useState([])
+  const [cargando, setCargando] = useState(true)
+  const [error, setError] = useState(null)
+  const [equipo, setEquipo] = useState([])
+  const [busqueda, setBusqueda] = useState('')
+  const [modoBusqueda, setModoBusqueda] = useState(false)
+  const [offset, setOffset] = useState(0)
+  const [total, setTotal] = useState(0)
+  const [mensaje, setMensaje] = useState('')
 
-  useEffect(() => {  
-    async function cargarPokemones() { 
+  useEffect(() => {
+    async function obtenerEquipo() {
+      try {
+        const lista = await cargarEquipo()
+        setEquipo(lista)
+      } catch (error) {
+        console.log('No se pudo cargar el equipo:', error)
+      }
+    }
+
+    obtenerEquipo()
+  }, [])
+
+  useEffect(() => {
+    if (modoBusqueda) return
+
+    async function obtenerPokemones() {
       try {
         setCargando(true)
         setError(null)
 
-        // Primero obtenemos la lista de Pokemon
-        const respuesta = await fetch(`${API}?limit=20&offset=0`)
-        //fetch hace la peticion, await espera a que llegue la respuesta antes de continuar, respuesta guarda la respuesta recibida del servidor, ${API} inserta la direccion que guardamos anteriormente, le ponemos limite de 20 y empezamos desde el primer resultado (offset)
-        if (!respuesta.ok) throw new Error('No se pudo obtener la lista de Pokémon.')
-        //Comprobacion de que la peticion tuvo una respuesta HTTP exitosa. Si no la tuvo, genera un error para manejarlo.
-
-        const lista = await respuesta.json()
-        //Enviamos la informacion en formato JSON
-
-        // Después pedimos los datos completos de cada Pokemon
-        const detalles = await Promise.all( //INiciamos todas las busquedas sin esperar a que una termine despues de otra
-          lista.results.map(async (pokemon) => { //Recorremos el arreglo y creamos uno nuevo con el resultado de transformar cada elemento
-            const res = await fetch(pokemon.url) //Cada pokemon tiene su propia URL. Aqui utilizo la direccion de ese pokemon para obtener todos sus datos
-            if (!res.ok) throw new Error(`No se pudieron cargar los datos de ${pokemon.name}.`)
-            return res.json() //Convertimos esa respuesta a un objeto de Javascript y lo devolvemos como resultado de la funcion
-          })
-        )
-
-        setPokemones(detalles)
-      } catch (err) {
-        setError(err.message || 'Ocurrió un error al cargar los Pokémon.')
+        const datos = await cargarPokemones(offset)
+        setPokemones(datos.pokemones)
+        setTotal(datos.total)
+      } catch (error) {
+        setError(error.message)
       } finally {
         setCargando(false)
       }
     }
 
-    cargarPokemones()
-  }, []) // Lo dejo vacio para que react lo ejecute al montar el componente, en lugar de repetirlo por cada cambio de estado
+    obtenerPokemones()
+  }, [offset, modoBusqueda])
+
+  async function manejarBusqueda(evento) {
+    evento.preventDefault()
+
+    const texto = busqueda.trim().toLowerCase()
+    if (texto === '') return
+
+    try {
+      setModoBusqueda(true)
+      setCargando(true)
+      setError(null)
+
+      const pokemon = await buscarPokemon(texto)
+      setPokemones([pokemon])
+    } catch (error) {
+      setError(error.message)
+    } finally {
+      setCargando(false)
+    }
+  }
+
+  function verTodos() {
+    setBusqueda('')
+    setOffset(0)
+    setModoBusqueda(false)
+    setError(null)
+  }
+
+  async function agregarAlEquipo(pokemon) {
+    if (equipoLleno(equipo)) {
+      setMensaje('Tu equipo ya tiene 6 Pokémon.')
+      return
+    }
+
+    if (estaEnEquipo(equipo, pokemon.id)) {
+      setMensaje('Ese Pokémon ya está en tu equipo.')
+      return
+    }
+
+    const nuevoPokemon = prepararPokemon(pokemon)
+    const nuevoEquipo = agregarPokemon(equipo, nuevoPokemon)
+
+    try {
+      await guardarPokemon(nuevoPokemon)
+      setEquipo(nuevoEquipo)
+      setMensaje(`${pokemon.name} fue agregado al equipo.`)
+    } catch (error) {
+      console.log(error)
+      setMensaje('No se pudo guardar el Pokémon.')
+    }
+  }
+
+  async function quitarDelEquipo(pokemon) {
+    try {
+      await eliminarPokemon(pokemon.id)
+      setEquipo(quitarPokemon(equipo, pokemon.id))
+      setMensaje(`${pokemon.name} fue eliminado del equipo.`)
+    } catch (error) {
+      console.log(error)
+      setMensaje('No se pudo quitar el Pokémon.')
+    }
+  }
+
+  const paginaActual = Math.floor(offset / LIMITE) + 1
+  const totalPaginas = Math.ceil(total / LIMITE)
 
   return (
     <main className="app">
       <header className="encabezado">
         <h1>Pokédex</h1>
-        <p className="subtitulo">Explora los primeros Pokémon y descubre sus características.</p>
+        <p>Busca Pokémon y arma un equipo de hasta 6 integrantes.</p>
+
+        <form className="buscador" onSubmit={manejarBusqueda}>
+          <input
+            type="text"
+            placeholder="Ej. pikachu o 25"
+            value={busqueda}
+            onChange={(evento) => setBusqueda(evento.target.value)}
+          />
+          <button type="submit">Buscar</button>
+          {modoBusqueda && (
+            <button type="button" className="boton-secundario" onClick={verTodos}>
+              Ver todos
+            </button>
+          )}
+        </form>
       </header>
 
-      {cargando && <p className="estado">Cargando Pokémon...</p>}
-      {error && <p className="error">{error}</p>}
+      <section className="seccion-equipo">
+        <h2>Mi equipo ({equipo.length}/6)</h2>
 
-      {!cargando && !error && (
-        <>
-          <p className="contador">Mostrando {pokemones.length} Pokémon</p>
-          <section className="rejilla-pokemon" aria-label="Lista de Pokémon">
-            {pokemones.map((pokemon) => (
-              <PokemonCard key={pokemon.id} pokemon={pokemon} />
+        {equipo.length === 0 ? (
+          <p className="vacio">Todavía no has agregado ningún Pokémon.</p>
+        ) : (
+          <div className="equipo">
+            {equipo.map((pokemon) => (
+              <PokemonCard
+                key={pokemon.id}
+                pokemon={pokemon}
+                onQuitar={quitarDelEquipo}
+                compacta
+              />
             ))}
-          </section>
-        </>
-      )}
+          </div>
+        )}
+
+        {mensaje && <p className="mensaje">{mensaje}</p>}
+      </section>
+
+      <section className="seccion-pokedex">
+        <div className="titulo-lista">
+          <h2>{modoBusqueda ? 'Resultado de búsqueda' : 'Pokémon'}</h2>
+          {!modoBusqueda && (
+            <span>
+              Página {paginaActual} de {totalPaginas || 1}
+            </span>
+          )}
+        </div>
+
+        {cargando && <p className="estado">Cargando...</p>}
+        {error && <p className="error">{error}</p>}
+
+        {!cargando && !error && (
+          <div className="rejilla-pokemon">
+            {pokemones.map((pokemon) => (
+              <PokemonCard
+                key={pokemon.id}
+                pokemon={pokemon}
+                onAgregar={agregarAlEquipo}
+                enEquipo={estaEnEquipo(equipo, pokemon.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {!modoBusqueda && !cargando && (
+          <div className="paginacion">
+            <button
+              disabled={offset === 0}
+              onClick={() => setOffset(offset - LIMITE)}
+            >
+              Anterior
+            </button>
+
+            <button
+              disabled={offset + LIMITE >= total}
+              onClick={() => setOffset(offset + LIMITE)}
+            >
+              Siguiente
+            </button>
+          </div>
+        )}
+      </section>
     </main>
   )
 }

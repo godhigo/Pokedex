@@ -19,27 +19,45 @@ const nombresTipos = {
   fairy: 'Hada',
 }
 
-export const PokemonCard = ({ pokemon }) => {
-  const image =
-    pokemon.sprites.other['official-artwork'].front_default ??
-    pokemon.sprites.front_default
+export function PokemonCard({ pokemon, onAgregar, onQuitar, enEquipo, compacta }) {
+  const imagen = pokemon.sprites.other['official-artwork'].front_default
+  const nombre = pokemon.name.charAt(0).toUpperCase() + pokemon.name.slice(1)
+  const tipoPrincipal = pokemon.types[0].type.name
 
   return (
-    <article className={`tarjeta tipo-${pokemon.types[0].type.name}`}>
+    <article className={`tarjeta tipo-${tipoPrincipal} ${compacta ? 'compacta' : ''}`}>
       <span className="numero">#{String(pokemon.id).padStart(3, '0')}</span>
-      <div className="imagen-pokemon">
-        {image && <img src={image} alt={`Ilustración de ${pokemon.name}`} loading="lazy" />}
-      </div>
-      <h2>{pokemon.name.charAt(0).toUpperCase() + pokemon.name.slice(1)}</h2>
-      <ul className="tipos">
+
+      <img className="imagen-pokemon" src={imagen} alt={nombre} />
+
+      <h3>{nombre}</h3>
+
+      <div className="tipos">
         {pokemon.types.map(({ type }) => (
-          <li key={type.name}>{nombresTipos[type.name] ?? type.name}</li>
+          <span key={type.name}>{nombresTipos[type.name]}</span>
         ))}
-      </ul>
-      <div className="datos-pokemon">
-        <p><span>Altura</span><strong>{pokemon.height / 10} m</strong></p>
-        <p><span>Peso</span><strong>{pokemon.weight / 10} kg</strong></p>
       </div>
+
+      {!compacta && (
+        <div className="datos-pokemon">
+          <p>Altura: {pokemon.height / 10} m</p>
+          <p>Peso: {pokemon.weight / 10} kg</p>
+        </div>
+      )}
+
+      {!compacta && !enEquipo && (
+        <button className="agregar" onClick={() => onAgregar(pokemon)}>
+          Agregar al equipo
+        </button>
+      )}
+
+      {!compacta && enEquipo && <p className="en-equipo">Ya está en tu equipo</p>}
+
+      {compacta && (
+        <button className="quitar" onClick={() => onQuitar(pokemon)}>
+          Quitar
+        </button>
+      )}
     </article>
   )
 }
